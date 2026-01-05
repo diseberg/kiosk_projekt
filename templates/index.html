@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Incheckning</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <img class="logo" src="{{ url_for('theme_static', filename='images/logolight.png') }}" alt="logo">
+            <h1>Välkommen!</h1>
+            <p class="lead">Skriv ditt namn för att checka in</p>
+
+            <div class="suggestions-wrap">
+                <input
+                    type="text"
+                    id="nameInput"
+                    placeholder="Sök namn..."
+                    autocomplete="off"
+                    class="input"
+                    autofocus
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-controls="suggestions"
+                    aria-activedescendant=""
+                >
+                <div id="suggestions" class="suggestions" role="listbox" aria-label="Medlemsförslag"></div>
+            </div>
+
+            <div class="hint">Tips: ↑/↓ välj, Enter = checka in, Esc = stäng</div>
+
+            <button class="btn" onclick="submitCheckin()">Checka in</button>
+            <button class="btn btn-secondary" onclick="openGuestModal()" style="margin-top: 12px;">Inte medlem?</button>
+            <div id="msg" class="message"></div>
+        </div>
+    </div>
+
+    <!-- Guest Modal -->
+    <div id="guestModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Engångsavgift</h2>
+            <p class="lead">Ange namn och personnummer</p>
+            
+            <input type="text" id="guestName" class="input" placeholder="Namn" autocomplete="off">
+            <input type="text" id="guestId" class="input" placeholder="Personnr (ÅÅMMDD-XXXX)" autocomplete="off">
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeGuestModal()">Avbryt</button>
+                <button class="btn" onclick="submitGuestCheckin()">Checka in</button>
+            </div>
+        </div>
+    </div>
+
+    <script id="members-data" type="application/json">{{ members_json | safe }}</script>
+
+    <script>
+        // members provided by server as JSON array of {name, year}
+        const members = JSON.parse(document.getElementById('members-data').textContent || '[]');
+
+        const input = document.getElementById('nameInput');
+        const suggestions = document.getElementById('suggestions');
+        let filtered = [];
+        let activeIndex = -1;
+
+        function setExpanded(isExpanded) {
+            input.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        }
+
+        function clearSuggestions() {
+            suggestions.innerHTML = '';
+            input.setAttribute('aria-activedescendant', '');
+            setExpanded(false);
+            activeIndex = -1;
+        }
+
+        function setActiveIndex(newIndex) {
+            activeIndex = newIndex;
+            const items = suggestions.querySelectorAll('[role="option"]');
+            items.forEach((el, idx) => {
+                if (idx === activeIndex) {
+                    el.classList.add('active');
+                    el.setAttribute('aria-selected', 'true');
+                    input.setAttribute('aria-activedescendant', el.id);
+                    // ensure visible
+                    el.scrollIntoView({ block: 'nearest' });
+                } else {
+                    el.classList.remove('active');
+                    el.setAttribute('aria-selected', 'false');
+                }
+            });
+            if (activeIndex < 0) {
+                input.setAttribute('aria-activedescendant', '');
+            }
+        }
+
+        function chooseMember(member) {
+            input.value = member.name;
+            clearSuggestions();
+            input.focus();
+        }
+
+        // Guest Modal Functions
+        const guestModal = document.getElementById('guestModal');
+        const guestNameInput = document.getElementById('guestName');
+        const guestIdInput = document.getElementById('guestId');
+
+        function openGuestModal() {
+            guestModal.classList.add('open');
+            guestNameInput.focus();
+        }
+
+        function closeGuestModal() {
+            guestModal.classList.remove('open');
+            guestNameInput.value = '';
+            guestIdInput.value = '';
+        }
+
+        function showMessage(text, type) {
+            const msgDiv = document.getElementById('msg');
+            msgDiv.innerText = text;
+            msgDiv.className = 'message ' + type;
+            setTimeout(() => { 
+                msgDiv.innerText = ''; 
+                msgDiv.className = 'message'; 
+            }, 3000);
+        }
+
+        function submitGuestCheckin() {
+            const name = guestNameInput.value.trim();
+            const pid = guestIdInput.value.trim();
+            
+            if (!name || !pid) {
+                alert("Fyll i både namn och personnummer.");
+                return;
+            }
+
+            fetch('/checkin_guest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, person_id: pid })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    closeGuestModal();
+                    showMessage(data.message, 'success');
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert("Ett fel uppstod.");
+            });
+        }
+
+        function makeSuggestionItem(member, idx) {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.id = `suggestion-${idx}`;
+            div.setAttribute('role', 'option');
+            div.setAttribute('aria-selected', 'false');
+            let label = member.name;
+            if (member.year) {
+                label += ` (${member.year})`;
+            }
+            if (member.avgiftstyp) {
+                label += ` - ${member.avgiftstyp}`;
+            }
+            div.textContent = label;
+            div.addEventListener('mousedown', (e) => {
+                // prevent input blur before selection
+                e.preventDefault();
+                chooseMember(member);
+            });
+            div.addEventListener('click', () => chooseMember(member));
+            return div;
+        }
+
+        function renderSuggestions(query, { showAllIfEmpty = false } = {}) {
+            const q = (query || '').trim().toLowerCase();
+            suggestions.innerHTML = '';
+
+            if (!q && !showAllIfEmpty) {
+                clearSuggestions();
+                return;
+            }
+
+            filtered = members.filter(m => m && m.name).filter(m => {
+                if (!q) return true;
+                return m.name.toLowerCase().includes(q);
+            }).slice(0, 8);
+
+            if (filtered.length === 0) {
+                clearSuggestions();
+                return;
+            }
+
+            filtered.forEach((m, idx) => suggestions.appendChild(makeSuggestionItem(m, idx)));
+            setExpanded(true);
+            setActiveIndex(-1);
+        }
+
+        input.addEventListener('input', () => {
+            renderSuggestions(input.value);
+        });
+
+        // Kiosk-friendly: ensure cursor is ready without a click
+        window.addEventListener('load', () => {
+            try { input.focus(); } catch (e) {}
+        });
+
+        input.addEventListener('keydown', (e) => {
+            const items = suggestions.querySelectorAll('[role="option"]');
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (items.length === 0) {
+                    renderSuggestions(input.value, { showAllIfEmpty: true });
+                    return;
+                }
+                const next = Math.min(activeIndex + 1, items.length - 1);
+                setActiveIndex(next);
+                return;
+            }
+
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (items.length === 0) return;
+                const prev = Math.max(activeIndex - 1, 0);
+                setActiveIndex(prev);
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                clearSuggestions();
+                return;
+            }
+
+            if (e.key === 'Enter') {
+                // If a suggestion is active, choose it. Otherwise submit checkin.
+                if (items.length > 0 && activeIndex >= 0 && filtered[activeIndex]) {
+                    e.preventDefault();
+                    chooseMember(filtered[activeIndex]);
+                    return;
+                }
+                // submit using keyboard
+                e.preventDefault();
+                submitCheckin();
+            }
+        });
+
+        // hide suggestions on blur (slight delay to allow click)
+        input.addEventListener('blur', () => setTimeout(clearSuggestions, 150));
+
+        async function submitCheckin() {
+            const name = document.getElementById('nameInput').value;
+            if (!name) return;
+            
+            const response = await fetch('/checkin', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            });
+
+            const result = await response.json();
+            const msgDiv = document.getElementById('msg');
+            msgDiv.innerText = result.message || '';
+
+            if (!response.ok || result.status === 'error') {
+                msgDiv.classList.add('error');
+                msgDiv.classList.remove('success');
+                return;
+            }
+
+            msgDiv.classList.remove('error');
+            msgDiv.classList.add('success');
+            document.getElementById('nameInput').value = '';
+            setTimeout(() => { msgDiv.innerText = ''; msgDiv.classList.remove('success'); }, 3000);
+        }
+    </script>
+</body>
+</html>

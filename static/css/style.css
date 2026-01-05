@@ -1,0 +1,109 @@
+@font-face {
+    font-family: 'Satoshi';
+    src: url('/theme/fonts/Satoshi-Regular.otf') format('opentype');
+    font-weight: 400;
+}
+@font-face {
+    font-family: 'Satoshi';
+    src: url('/theme/fonts/Satoshi-Medium.otf') format('opentype');
+    font-weight: 500;
+}
+@font-face {
+    font-family: 'Satoshi';
+    src: url('/theme/fonts/Satoshi-Bold.otf') format('opentype');
+    font-weight: 700;
+}
+@font-face {
+    font-family: 'Satoshi';
+    src: url('/theme/fonts/Satoshi-Black.otf') format('opentype');
+    font-weight: 900;
+}
+
+:root{
+    --bg: #0f1724; /* dark blue */
+    --card: #0b1220;
+    --orange: #f27405;
+    --accent: var(--orange);
+    --muted: #9aa6b2;
+}
+
+*, *::before, *::after{box-sizing:border-box}
+
+html,body{height:100%;margin:0;font-family: Satoshi, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;background: radial-gradient(ellipse at top right, rgba(0,118,255,0.08), transparent 20%), var(--bg); color: #e6eef6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+
+.container{display:flex;align-items:center;justify-content:center;height:100vh;padding:24px}
+.card{width:100%;max-width:520px;background:var(--card);border-radius:18px;padding:40px;box-shadow:0 14px 40px rgba(2,6,23,0.65);text-align:center;border:1px solid rgba(255,255,255,0.06)}
+.logo{height:76px;margin-bottom:22px;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.55));}
+h1{margin:0 0 8px 0;font-size:2.0rem;font-weight:600}
+.lead{margin:0 0 18px 0;color:var(--muted);font-size:1.05rem}
+.input{width:100%;padding:16px 18px;margin:14px 0;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);color:inherit;font-size:1.15rem}
+.input:focus{outline:none;box-shadow:0 4px 18px rgba(0,114,255,0.14);border-color:rgba(0,114,255,0.4)}
+.btn{width:100%;padding:14px 18px;margin-top:8px;border-radius:12px;border:none;color:white;background:var(--accent);font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(242,116,5,0.18);font-size:1.05rem;text-rendering:geometricPrecision}
+.btn:active{transform:translateY(1px)}
+.message{margin-top:16px;font-weight:700;color:#8af2a4;min-height:1.4rem;font-size:1.1rem;font-family:Satoshi, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;text-rendering:geometricPrecision}
+.message.error{color:#ff7b7b}
+.message.success{color:#8af2a4}
+
+.hint{margin-top:6px;color:var(--muted);font-size:0.95rem}
+
+.suggestions-wrap{position:relative;width:100%}
+.suggestions{position:absolute;left:0;right:0;top:100%;z-index:10;background:rgba(15,23,36,0.98);border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;max-height:220px;overflow-y:auto;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+.suggestion-item{border-top:1px solid rgba(255,255,255,0.06)}
+.suggestion-item:first-child{border-top:none}
+.suggestion-item:hover{background:rgba(255,255,255,0.06)}
+.suggestion-item.active{background:rgba(0,114,255,0.20)}
+.suggestion-item:focus{outline:none}
+
+/* Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+.modal-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+.modal {
+    background: var(--card);
+    padding: 30px;
+    border-radius: 18px;
+    width: 90%;
+    max-width: 400px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    transform: translateY(20px);
+    transition: transform 0.2s ease;
+}
+.modal-overlay.open .modal {
+    transform: translateY(0);
+}
+.modal h2 {
+    margin-top: 0;
+    font-size: 1.5rem;
+}
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+.btn-secondary {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: none;
+}
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+@media (max-width:420px){.card{padding:24px;border-radius:14px}.logo{height:60px}}
