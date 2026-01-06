@@ -7,9 +7,23 @@ from datetime import datetime
 import json
 import json
 
+import socket
+
 app = Flask(__name__)
 
 DB_PATH = os.path.join(app.root_path, 'checkins.db')
+
+def get_ip_address():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # doesn't even have to be reachable
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
 
 # Serve theme assets (fonts/images) from the `theme/` folder
 @app.route('/theme/<path:filename>')
@@ -141,8 +155,10 @@ def index():
     members = get_members_from_db()
     if not members:
         members = get_members_from_sheets()
+    
+    ip_address = get_ip_address()
 
-    return render_template('index.html', members_json=json.dumps(members))
+    return render_template('index.html', members_json=json.dumps(members), ip_address=ip_address)
 
 @app.route('/checkin', methods=['POST'])
 def checkin():
@@ -196,4 +212,4 @@ def checkin_guest():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)
