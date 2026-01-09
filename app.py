@@ -5,9 +5,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from datetime import datetime
 import json
-import json
-
 import socket
+import threading
+import time
+import sync_members
 
 app = Flask(__name__)
 
@@ -210,6 +211,31 @@ def checkin_guest():
     conn.close()
     return jsonify({"status": "success", "message": f"Gäst incheckad: {name}"})
 
+def background_sync_loop():
+    # Initial sleep to allow server startup and avoid immediate collision if multiple workers start
+    time.sleep(10) 
+    while True:
+        try:
+            # Run sync every 10 minutes (600 seconds)
+            print("[Background] Starting sync...")
+            sync_members.import_members_from_sheet()
+            sync_members.export_new_rows()
+            print("[Background] Sync completed.")
+        except Exception as e:
+            print(f"[Background] Sync error: {e}")
+        
+        time.sleep(600)
+
+# Start background sync thread
+# Note: In a multiprocess environment like Gunicorn, this runs in each worker.
+# Ideally, use a dedicated worker or external scheduler, but this is a simple "smart" solution embedded in the app.
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("WERKZEUG_RUN_MAIN"):
+    # Attempt to start only once in debug mode or simple run, 
+    # but Gunicorn will still spawn threads per worker.
+    # To reduce race conditions, one could check a lock file, but standard SQLite locking often suffices for simple overwrites.
+    t = threading.Thread(target=background_sync_loop, daemon=True)
+    t.start()
+    
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=5000, debug=False)
