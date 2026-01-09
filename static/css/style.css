@@ -36,9 +36,9 @@ html,body{height:100%;margin:0;font-family: Satoshi, system-ui, -apple-system, '
 .logo{height:76px;margin-bottom:22px;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.55));}
 h1{margin:0 0 8px 0;font-size:2.0rem;font-weight:600}
 .lead{margin:0 0 18px 0;color:var(--muted);font-size:1.05rem}
-.input{width:100%;padding:16px 18px;margin:14px 0;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);color:inherit;font-size:1.15rem}
+.input{width:100%;padding:18px 20px;margin:14px 0;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);color:inherit;font-size:1.5rem}
 .input:focus{outline:none;box-shadow:0 4px 18px rgba(0,114,255,0.14);border-color:rgba(0,114,255,0.4)}
-.btn{width:100%;padding:14px 18px;margin-top:8px;border-radius:12px;border:none;color:white;background:var(--accent);font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(242,116,5,0.18);font-size:1.05rem;text-rendering:geometricPrecision}
+.btn{width:100%;padding:18px 24px;margin-top:8px;border-radius:12px;border:none;color:white;background:var(--accent);font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(242,116,5,0.18);font-size:1.3rem;text-rendering:geometricPrecision}
 .btn:active{transform:translateY(1px)}
 .message{margin-top:16px;font-weight:700;color:#8af2a4;min-height:1.4rem;font-size:1.1rem;font-family:Satoshi, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;text-rendering:geometricPrecision}
 .message.error{color:#ff7b7b}
@@ -47,8 +47,8 @@ h1{margin:0 0 8px 0;font-size:2.0rem;font-weight:600}
 .hint{margin-top:6px;color:var(--muted);font-size:0.95rem}
 
 .suggestions-wrap{position:relative;width:100%}
-.suggestions{position:absolute;left:0;right:0;top:100%;z-index:10;background:rgba(15,23,36,0.98);border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;max-height:220px;overflow-y:auto;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
-.suggestion-item{border-top:1px solid rgba(255,255,255,0.06)}
+.suggestions{position:absolute;left:0;right:0;top:100%;z-index:10;background:rgba(15,23,36,0.98);border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;max-height:300px;overflow-y:auto;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+.suggestion-item{border-top:1px solid rgba(255,255,255,0.06); text-align: left; padding: 12px 20px; font-size: 1.25rem;}
 .suggestion-item:first-child{border-top:none}
 .suggestion-item:hover{background:rgba(255,255,255,0.06)}
 .suggestion-item.active{background:rgba(0,114,255,0.20)}
