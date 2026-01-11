@@ -36,8 +36,13 @@ def view_checkins(limit=50, show_all=False):
             
             # Check if we have the new columns (schema migration might have happened)
             # Schema: id, name, timestamp, exported, person_id, checkin_type
-            person_id = row[4] if len(row) > 4 else ""
-            checkin_type = row[5] if len(row) > 5 else ""
+            person_id = row[4] if len(row) > 4 and row[4] is not None else ""
+            checkin_type = row[5] if len(row) > 5 and row[5] is not None else ""
+            
+            # Ensure other fields are strings (handle potential None in old data)
+            id_val = str(id_val) if id_val is not None else ""
+            name = str(name) if name is not None else ""
+            timestamp = str(timestamp) if timestamp is not None else ""
             
             # Translate exported status
             status = {0: "NO", 1: "YES", 2: "PENDING"}.get(exported, str(exported))
