@@ -70,6 +70,9 @@ def ensure_tables():
     if "checkin_type" not in checkins_cols:
         cursor.execute("ALTER TABLE checkins ADD COLUMN checkin_type TEXT")
 
+    # CLEANUP: Reset any rows stuck in processing state (2) from previous crashes
+    cursor.execute("UPDATE checkins SET exported = 0 WHERE exported = 2")
+
     cursor.execute("PRAGMA table_info(members)")
     members_cols = {row[1] for row in cursor.fetchall()}
     if "year_of_birth" not in members_cols:
@@ -238,71 +241,84 @@ def export_new_rows():
     ensure_tables()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
-    # Also fetch person_id and checkin_type for guest checkins
-    cursor.execute(
-        "SELECT c.id, c.name, m.year_of_birth, c.timestamp, c.person_id, c.checkin_type "
-        "FROM checkins c LEFT JOIN members m ON lower(trim(c.name)) = lower(trim(m.name)) "
-        "WHERE c.exported = 0"
-    )
-    rows = cursor.fetchall()
-
-    if not rows:
-        print("Inga nya incheckningar att exportera.")
-        conn.close()
-        return
+    
+    # 0 = EJ EXPORTERAD
+    # 1 = EXPORTERAD
+    # 2 = BEARBETAS (Låser raderna så ingen annan tråd tar dem)
 
     try:
+        # STEP 1: Claim rows by marking them as processing (2)
+        # This prevents race conditions between multiple workers
+        cursor.execute("UPDATE checkins SET exported = 2 WHERE exported = 0")
+        if cursor.rowcount == 0:
+            # Nothing to process
+            conn.commit()
+            conn.close()
+            return
+
+        conn.commit() # Commit the claim immediately
+
+        # STEP 2: Fetch only the rows we just claimed
+        cursor.execute(
+            "SELECT c.id, c.name, m.year_of_birth, c.timestamp, c.person_id, c.checkin_type "
+            "FROM checkins c LEFT JOIN members m ON lower(trim(c.name)) = lower(trim(m.name)) "
+            "WHERE c.exported = 2"
+        )
+        rows = cursor.fetchall()
+        
+        if not rows:
+            # Should hopefully not happen if rowcount > 0, but good safety
+            conn.close()
+            return
+
         # Prepare rows
         # Format: Name, ID (Year or PersonID), Type (Avgiftstyp or "engångsavgift"), Timestamp
         data_to_upload = []
+        ids_to_finalize = []
+
         for row in rows:
             c_id, c_name, m_year, c_timestamp, c_person_id, c_checkin_type = row
+            ids_to_finalize.append(c_id)
             
             name = c_name
             
             # Determine ID and Type
             if c_checkin_type == "engångsavgift":
-                # Guest
                 id_val = c_person_id if c_person_id else ""
                 type_val = "engångsavgift"
             else:
-                # Member
                 id_val = m_year if m_year is not None else ""
-                # If we want to show member type here, we could fetch it. 
-                # For now, let's leave it blank or "Medlem" if requested. 
-                # The user request specifically mentioned "engångsavgift" for non-members.
-                # Let's assume blank for members to match previous behavior, or maybe "Medlem"?
-                # Previous behavior was just Name, Year, Timestamp.
-                # Let's use "Medlem" to be explicit, or empty string.
                 type_val = "" 
 
             data_to_upload.append([name, id_val, type_val, c_timestamp])
 
-        ids_to_update = [row[0] for row in rows]
-
+        # STEP 3: Upload to Google Sheets
         client = get_gsheet_client()
         sh = client.open(SHEET_NAME)
         try:
             sheet = sh.worksheet("Logg")
         except gspread.WorksheetNotFound:
             sheet = sh.add_worksheet("Logg", rows=1000, cols=10)
-            # Add header row for clarity
             sheet.append_row(["name", "id", "type", "timestamp"]) 
 
         sheet.append_rows(data_to_upload)
 
-        cursor.executemany("UPDATE checkins SET exported = 1 WHERE id = ?", [(i,) for i in ids_to_update])
+        # STEP 4: Mark as Done (1)
+        cursor.executemany("UPDATE checkins SET exported = 1 WHERE id = ?", [(i,) for i in ids_to_finalize])
         conn.commit()
 
         print(f"Exporterat {len(data_to_upload)} nya rader!")
         log_sync("write", "Logg", rows=len(data_to_upload), status="ok")
 
     except Exception as e:
-        print(f"Fel: {e}")
-        import traceback
-        print("Hela felet:")
-        print(traceback.format_exc())
+        print(f"Fel vid export: {e}")
+        # Rollback claimed rows to 0 so they can be tried again
+        try:
+            cursor.execute("UPDATE checkins SET exported = 0 WHERE exported = 2")
+            conn.commit()
+        except:
+            pass
+        
         log_sync("write", "Logg", rows=0, status="error", note=str(e))
     finally:
         conn.close()
