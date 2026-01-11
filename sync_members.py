@@ -335,7 +335,7 @@ def export_new_rows():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sync members and export checkins to Google Sheets")
-    parser.add_argument("action", nargs="?", choices=["import-members", "export-new-rows", "init-db", "sync-all"], default="sync-all", help="Action to perform")
+    parser.add_argument("action", nargs="?", choices=["import-members", "export-new-rows", "init-db", "sync-all", "reset-exports"], default="sync-all", help="Action to perform")
     args = parser.parse_args()
 
     if args.action == "import-members":
@@ -348,3 +348,10 @@ if __name__ == "__main__":
     elif args.action == "sync-all":
         import_members_from_sheet()
         export_new_rows()
+    elif args.action == "reset-exports":
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE checkins SET exported = 0")
+        conn.commit()
+        conn.close()
+        print("Done. All rows have been reset to 'unexported'. Clear the 'Logg' sheet in Google Sheets and run 'python sync_members.py' to re-export everything.")
