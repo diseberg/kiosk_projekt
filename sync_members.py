@@ -297,6 +297,15 @@ def export_new_rows():
         sh = client.open(SHEET_NAME)
         try:
             sheet = sh.worksheet("Logg")
+            # Check if header exists, otherwise add it
+            # Read cell A1. If empty or not "name", assume missing header.
+            # (Note: This is a simple check. If the sheet is completely empty, A1 is empty)
+            val_a1 = sheet.acell('A1').value
+            if not val_a1 or val_a1.lower() != "name":
+                 # If overwrite risk, maybe insert row? Or just append header?
+                 # If sheet is empty, append_row will put it at the top.
+                 print("Adding missing header to Logg sheet.")
+                 sheet.insert_row(["name", "id", "type", "timestamp"], index=1)
         except gspread.WorksheetNotFound:
             sheet = sh.add_worksheet("Logg", rows=1000, cols=10)
             sheet.append_row(["name", "id", "type", "timestamp"]) 

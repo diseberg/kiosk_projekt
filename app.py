@@ -172,11 +172,16 @@ def checkin():
     name_key = name_clean.casefold()
 
     # Validate against local DB members if available, otherwise Sheets
+    # (Checking against sheets is risky if network is down; prefer local DB)
     db_members = get_members_from_db()
     if db_members:
         names = [m['name'] for m in db_members]
     else:
-        names = [m['name'] for m in get_members_from_sheets()]
+        # Fallback only if local DB is totally empty
+        try:
+            names = [m['name'] for m in get_members_from_sheets()]
+        except:
+            names = []
 
     member_keys = {m.strip().casefold() for m in names}
 
@@ -184,12 +189,27 @@ def checkin():
         return jsonify({"status": "error", "message": "Namnet finns inte i listan."}), 400
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO checkins (name, timestamp) VALUES (?, ?)", (name_clean, timestamp))
-    conn.commit()
-    conn.close()
-    return jsonify({"status": "success", "message": f"Incheckad: {name_clean}"})
+    
+    # Retry loop for database lock
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=10) # 10s timeout
+            c = conn.cursor()
+            c.execute("INSERT INTO checkins (name, timestamp) VALUES (?, ?)", (name_clean, timestamp))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": f"Incheckad: {name_clean}"})
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e):
+                time.sleep(0.5) # Wait a bit before retrying
+                continue
+            else:
+                return jsonify({"status": "error", "message": f"Databasfel: {e}"}), 500
+        except Exception as e:
+             return jsonify({"status": "error", "message": f"Okänt fel: {e}"}), 500
+             
+    return jsonify({"status": "error", "message": "Kunde inte spara till databasen (låst)."}), 500
 
 @app.route('/checkin_guest', methods=['POST'])
 def checkin_guest():
@@ -203,13 +223,28 @@ def checkin_guest():
     # (Optional: add regex validation if strict format is required)
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO checkins (name, timestamp, person_id, checkin_type) VALUES (?, ?, ?, ?)", 
-              (name.strip(), timestamp, person_id.strip(), "engångsavgift"))
-    conn.commit()
-    conn.close()
-    return jsonify({"status": "success", "message": f"Gäst incheckad: {name}"})
+    
+    # Retry loop for database lock
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=10)
+            c = conn.cursor()
+            c.execute("INSERT INTO checkins (name, timestamp, person_id, checkin_type) VALUES (?, ?, ?, ?)", 
+                      (name.strip(), timestamp, person_id.strip(), "engångsavgift"))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": f"Gäst incheckad: {name}"})
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e):
+                time.sleep(0.5)
+                continue
+            else:
+               return jsonify({"status": "error", "message": f"Databasfel: {e}"}), 500
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Okänt fel: {e}"}), 500
+
+    return jsonify({"status": "error", "message": "Kunde inte spara till databasen (låst)."}), 500
 
 def background_sync_loop():
     # Initial sleep to allow server startup and avoid immediate collision if multiple workers start
