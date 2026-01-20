@@ -4,6 +4,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import argparse
 import os
+import sys
+import time
 
 SHEET_NAME = "KioskTest"
 JSON_KEY = "credentials.json"
@@ -239,16 +241,45 @@ def import_members_from_sheet():
 
 def export_new_rows():
     ensure_tables()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     
-    # 0 = EJ EXPORTERAD
-    # 1 = EXPORTERAD
-    # 2 = BEARBETAS (Låser raderna så ingen annan tråd tar dem)
-
+    # Acquire file lock to prevent multiple workers from exporting simultaneously
+    lock_file_path = os.path.join(BASE_DIR, "export.lock")
+    lock_file = None
+    
     try:
+        lock_file = open(lock_file_path, "w")
+        # Try to acquire exclusive lock (non-blocking)
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            # Another process is already exporting
+            print("Export already in progress by another worker, skipping...")
+            lock_file.close()
+            return
+        
+        # Use longer timeout for slow systems (30 seconds instead of default 5)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
+        cursor = conn.cursor()
+        
+        # CLEANUP: Reset any rows stuck at exported=2 from previous crashes/timeouts
+        # This ensures rows aren't lost if export failed partway through
+        cursor.execute("UPDATE checkins SET exported = 0 WHERE exported = 2")
+        stuck_count = cursor.rowcount
+        if stuck_count > 0:
+            print(f"Reset {stuck_count} rows stuck in processing state")
+        conn.commit()
+        
+        # 0 = EJ EXPORTERAD
+        # 1 = EXPORTERAD
+        # 2 = BEARBETAS (Låser raderna så ingen annan tråd tar dem)
+
         # STEP 1: Claim rows by marking them as processing (2)
-        # This prevents race conditions between multiple workers
+        # Now with file lock + cleanup, we safely claim rows
         cursor.execute("UPDATE checkins SET exported = 2 WHERE exported = 0")
         if cursor.rowcount == 0:
             # Nothing to process
@@ -293,24 +324,41 @@ def export_new_rows():
             data_to_upload.append([name, id_val, type_val, c_timestamp])
 
         # STEP 3: Upload to Google Sheets
-        client = get_gsheet_client()
-        sh = client.open(SHEET_NAME)
-        try:
-            sheet = sh.worksheet("Logg")
-            # Check if header exists, otherwise add it
-            # Read cell A1. If empty or not "name", assume missing header.
-            # (Note: This is a simple check. If the sheet is completely empty, A1 is empty)
-            val_a1 = sheet.acell('A1').value
-            if not val_a1 or val_a1.lower() != "name":
-                 # If overwrite risk, maybe insert row? Or just append header?
-                 # If sheet is empty, append_row will put it at the top.
-                 print("Adding missing header to Logg sheet.")
-                 sheet.insert_row(["name", "id", "type", "timestamp"], index=1)
-        except gspread.WorksheetNotFound:
-            sheet = sh.add_worksheet("Logg", rows=1000, cols=10)
-            sheet.append_row(["name", "id", "type", "timestamp"]) 
+        # Add retry logic for slow/unreliable network
+        max_upload_retries = 3
+        upload_success = False
+        
+        for upload_attempt in range(max_upload_retries):
+            try:
+                client = get_gsheet_client()
+                sh = client.open(SHEET_NAME)
+                try:
+                    sheet = sh.worksheet("Logg")
+                    # Check if header exists, otherwise add it
+                    # Read cell A1. If empty or not "name", assume missing header.
+                    # (Note: This is a simple check. If the sheet is completely empty, A1 is empty)
+                    val_a1 = sheet.acell('A1').value
+                    if not val_a1 or val_a1.lower() != "name":
+                         # If overwrite risk, maybe insert row? Or just append header?
+                         # If sheet is empty, append_row will put it at the top.
+                         print("Adding missing header to Logg sheet.")
+                         sheet.insert_row(["name", "id", "type", "timestamp"], index=1)
+                except gspread.WorksheetNotFound:
+                    sheet = sh.add_worksheet("Logg", rows=1000, cols=10)
+                    sheet.append_row(["name", "id", "type", "timestamp"]) 
 
-        sheet.append_rows(data_to_upload)
+                sheet.append_rows(data_to_upload)
+                upload_success = True
+                break  # Success, exit retry loop
+            except Exception as upload_err:
+                print(f"Upload attempt {upload_attempt + 1}/{max_upload_retries} failed: {upload_err}")
+                if upload_attempt < max_upload_retries - 1:
+                    time.sleep(2)  # Wait before retry
+                else:
+                    raise  # Re-raise if all retries exhausted
+        
+        if not upload_success:
+            raise Exception("Failed to upload to Google Sheets after all retries")
 
         # STEP 4: Mark as Done (1)
         cursor.executemany("UPDATE checkins SET exported = 1 WHERE id = ?", [(i,) for i in ids_to_finalize])
@@ -323,14 +371,31 @@ def export_new_rows():
         print(f"Fel vid export: {e}")
         # Rollback claimed rows to 0 so they can be tried again
         try:
-            cursor.execute("UPDATE checkins SET exported = 0 WHERE exported = 2")
-            conn.commit()
-        except:
-            pass
+            # Only attempt rollback if we have a valid connection
+            if 'conn' in locals() and conn:
+                if 'cursor' not in locals():
+                    cursor = conn.cursor()
+                cursor.execute("UPDATE checkins SET exported = 0 WHERE exported = 2")
+                conn.commit()
+        except Exception as rollback_err:
+            print(f"Rollback failed: {rollback_err}")
         
         log_sync("write", "Logg", rows=0, status="error", note=str(e))
     finally:
-        conn.close()
+        if 'conn' in locals() and conn:
+            conn.close()
+        # Release file lock
+        if lock_file:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except:
+                pass
 
 
 if __name__ == "__main__":

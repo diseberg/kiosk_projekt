@@ -194,7 +194,7 @@ def checkin():
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            conn = sqlite3.connect(DB_PATH, timeout=10) # 10s timeout
+            conn = sqlite3.connect(DB_PATH, timeout=30.0) # 30s timeout for slow systems
             c = conn.cursor()
             c.execute("INSERT INTO checkins (name, timestamp) VALUES (?, ?)", (name_clean, timestamp))
             conn.commit()
@@ -228,7 +228,7 @@ def checkin_guest():
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            conn = sqlite3.connect(DB_PATH, timeout=10)
+            conn = sqlite3.connect(DB_PATH, timeout=30.0) # 30s timeout for slow systems
             c = conn.cursor()
             c.execute("INSERT INTO checkins (name, timestamp, person_id, checkin_type) VALUES (?, ?, ?, ?)", 
                       (name.strip(), timestamp, person_id.strip(), "engångsavgift"))
@@ -262,14 +262,35 @@ def background_sync_loop():
         time.sleep(600)
 
 # Start background sync thread
-# Note: In a multiprocess environment like Gunicorn, this runs in each worker.
-# Ideally, use a dedicated worker or external scheduler, but this is a simple "smart" solution embedded in the app.
-if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("WERKZEUG_RUN_MAIN"):
-    # Attempt to start only once in debug mode or simple run, 
-    # but Gunicorn will still spawn threads per worker.
-    # To reduce race conditions, one could check a lock file, but standard SQLite locking often suffices for simple overwrites.
+# Only start in ONE worker to prevent duplicate exports
+# Use a marker file to claim the background sync role
+def try_claim_background_sync():
+    import sys
+    marker_file_path = os.path.join(app.root_path, "background_sync.lock")
+    try:
+        marker_file = open(marker_file_path, "w")
+        # Try to acquire exclusive lock (non-blocking)
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(marker_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(marker_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Write PID for debugging
+        marker_file.write(str(os.getpid()))
+        marker_file.flush()
+        return True, marker_file
+    except (IOError, OSError):
+        # Another worker already claimed it
+        return False, None
+
+claimed, marker_file = try_claim_background_sync()
+if claimed:
+    print(f"[Worker {os.getpid()}] Starting background sync thread")
     t = threading.Thread(target=background_sync_loop, daemon=True)
     t.start()
+else:
+    print(f"[Worker {os.getpid()}] Background sync already claimed by another worker")
     
 if __name__ == '__main__':
     init_db()
