@@ -1,6 +1,15 @@
 #!/bin/bash
 export DISPLAY=:0
 
+# Prevent multiple instances of this script
+LOCKFILE="/tmp/kiosk_autostart.lock"
+if [ -e "$LOCKFILE" ]; then
+    echo "Script already running (lockfile exists), exiting" >> /home/incheckning/kiosk_startup.log
+    exit 0
+fi
+touch "$LOCKFILE"
+trap "rm -f $LOCKFILE" EXIT
+
 # Logging
 LOGFILE="/home/incheckning/kiosk_startup.log"
 echo "=== Kiosk startup at $(date) ===" >> "$LOGFILE"
