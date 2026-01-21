@@ -54,6 +54,13 @@ rm -rf /tmp/kiosk_profile
 xset s off
 xset s noblank
 xset -dpms
+
+# Disable screen locking
+gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null
+gsettings set org.gnome.desktop.lockdown disable-lock-screen true 2>/dev/null
+xfconf-query -c xfce4-screensaver -p /lock/enabled -s false 2>/dev/null
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -s false 2>/dev/null
+
 unclutter -idle 5 &
 
 (
