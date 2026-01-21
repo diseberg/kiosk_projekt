@@ -5,12 +5,27 @@ export DISPLAY=:0
 LOGFILE="/home/incheckning/kiosk_startup.log"
 echo "=== Kiosk startup at $(date) ===" >> "$LOGFILE"
 
-# 1. Städa
+# 1. Städa - AGGRESSIVT
 echo "Cleaning up old processes..." >> "$LOGFILE"
 killall -9 chromium chromium-browser 2>/dev/null
-pkill -9 -f "gunicorn.*app:app" 2>/dev/null
+pkill -9 -f "gunicorn" 2>/dev/null
 pkill -9 -f "python.*app.py" 2>/dev/null
-sleep 2
+pkill -9 python3 2>/dev/null
+pkill -9 python 2>/dev/null
+
+# Kill anything on port 5000
+fuser -k 5000/tcp 2>/dev/null
+
+# Wait for processes to fully die
+sleep 5
+
+# Verify port is free
+if netstat -tuln | grep -q ":5000 "; then
+    echo "ERROR: Port 5000 still in use after cleanup!" >> "$LOGFILE"
+    fuser -k -9 5000/tcp 2>/dev/null
+    sleep 2
+fi
+
 rm -rf /tmp/kiosk_profile
 
 # 2. Inställningar

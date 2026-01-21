@@ -1,0 +1,60 @@
+# Autostart Configuration Examples for Debian Kiosk
+
+## Option 1: Openbox Autostart
+# Create/edit: ~/.config/openbox/autostart
+# Add this line:
+
+@bash /path/to/kiosk_projekt/start_kiosk.sh
+
+
+## Option 2: LXSession Autostart
+# Create/edit: ~/.config/lxsession/LXDE/autostart
+# Add this line:
+
+@bash /path/to/kiosk_projekt/start_kiosk.sh
+
+
+## Option 3: Systemd User Service (More robust)
+# Create: ~/.config/systemd/user/kiosk.service
+
+[Unit]
+Description=Kiosk Application
+After=network-online.target graphical.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/kiosk_projekt
+ExecStart=/bin/bash /path/to/kiosk_projekt/start_kiosk.sh
+ExecStop=/bin/bash /path/to/kiosk_projekt/stop_kiosk.sh
+Restart=on-failure
+RestartSec=10
+Environment="DISPLAY=:0"
+
+[Install]
+WantedBy=default.target
+
+# Then enable it:
+# systemctl --user daemon-reload
+# systemctl --user enable kiosk.service
+# systemctl --user start kiosk.service
+
+
+## Option 4: /etc/xdg/autostart (System-wide)
+# Create: /etc/xdg/autostart/kiosk.desktop
+
+[Desktop Entry]
+Type=Application
+Name=Kiosk
+Exec=/bin/bash /path/to/kiosk_projekt/start_kiosk.sh
+X-GNOME-Autostart-Delay=5
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+
+
+## Debugging Tips:
+# 1. Check if process is running: ps aux | grep gunicorn
+# 2. Check port usage: sudo netstat -tlnp | grep 5000
+# 3. View startup log: cat ~/kiosk_startup.log
+# 4. Test manually: bash /path/to/kiosk_projekt/start_kiosk.sh
