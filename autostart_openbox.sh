@@ -7,25 +7,38 @@ echo "=== Kiosk startup at $(date) ===" >> "$LOGFILE"
 
 # 1. Städa - AGGRESSIVT
 echo "Cleaning up old processes..." >> "$LOGFILE"
+
+# Check what's on port 5000 BEFORE cleanup
+echo "Before cleanup - processes on port 5000:" >> "$LOGFILE"
+ss -tlnp | grep ":5000 " >> "$LOGFILE" 2>&1
+
 killall -9 chromium chromium-browser 2>/dev/null
 pkill -9 -f "gunicorn" 2>/dev/null
 pkill -9 -f "python.*app.py" 2>/dev/null
 pkill -9 python3 2>/dev/null
 pkill -9 python 2>/dev/null
 
-# Kill anything on port 5000
-fuser -k 5000/tcp 2>/dev/null
+# Kill anything on port 5000 - FORCE
+fuser -k -9 5000/tcp 2>/dev/null
 
 # Wait for processes to fully die
 sleep 5
 
 # Verify port is free
 if ss -tuln | grep -q ":5000 "; then
-    echo "ERROR: Port 5000 still in use after cleanup!" >> "$LOGFILE"
+    echo "ERROR: Port 5000 STILL in use after cleanup!" >> "$LOGFILE"
+    ss -tlnp | grep ":5000 " >> "$LOGFILE" 2>&1
+    echo "Attempting FORCE kill again..." >> "$LOGFILE"
     fuser -k -9 5000/tcp 2>/dev/null
-    sleep 2
+    sleep 3
+    # Final check
+    if ss -tuln | grep -q ":5000 "; then
+        echo "CRITICAL: Cannot free port 5000, aborting!" >> "$LOGFILE"
+        exit 1
+    fi
 fi
 
+echo "Port 5000 is now free" >> "$LOGFILE"
 rm -rf /tmp/kiosk_profile
 
 # 2. Inställningar
