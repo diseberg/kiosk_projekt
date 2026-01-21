@@ -20,7 +20,7 @@ fuser -k 5000/tcp 2>/dev/null
 sleep 5
 
 # Verify port is free
-if netstat -tuln | grep -q ":5000 "; then
+if ss -tuln | grep -q ":5000 "; then
     echo "ERROR: Port 5000 still in use after cleanup!" >> "$LOGFILE"
     fuser -k -9 5000/tcp 2>/dev/null
     sleep 2
