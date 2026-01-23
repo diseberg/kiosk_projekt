@@ -50,18 +50,46 @@ fi
 echo "Port 5000 is now free" >> "$LOGFILE"
 rm -rf /tmp/kiosk_profile
 
-# 2. Inställningar
-xset s off
-xset s noblank
-xset -dpms
+# 2. Inställningar - Skärmsläckning men INGEN lösenordsskärm
+# Stäng av screensaver men tillåt DPMS att släcka skärmen
+xset s off          # Ingen screensaver
+xset s noblank      # Ingen blanking
+# DPMS: standby efter 60 min, suspend efter 60 min, off efter 60 min
+xset dpms 3600 3600 3600
 
-# Disable screen locking
+# Döda alla screenlockers
+killall -9 xscreensaver light-locker xfce4-screensaver gnome-screensaver 2>/dev/null
+
+# Inaktivera screen locking i alla möjliga desktop environments
 gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null
+gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2>/dev/null
 gsettings set org.gnome.desktop.lockdown disable-lock-screen true 2>/dev/null
+gsettings set org.gnome.desktop.session idle-delay 0 2>/dev/null
 xfconf-query -c xfce4-screensaver -p /lock/enabled -s false 2>/dev/null
-xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -s false 2>/dev/null
+xfconf-query -c xfce4-screensaver -p /saver/enabled -s false 2>/dev/null
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -s true 2>/dev/null
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-sleep -s 60 2>/dev/null
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/lock-screen-suspend-hibernate -s false 2>/dev/null
 
 unclutter -idle 5 &
+
+# Stäng av datorn efter 3 timmars inaktivitet
+(
+  # Vänta lite innan vi startar inaktivitetskontrollen
+  sleep 60
+  while true; do
+    # Kolla idle time (i millisekunder)
+    IDLE_TIME=$(xprintidle 2>/dev/null || echo 0)
+    # 3 timmar = 10800000 millisekunder
+    if [ "$IDLE_TIME" -gt 10800000 ]; then
+      echo "3 hours of inactivity detected, shutting down..." >> "$LOGFILE"
+      /sbin/shutdown -h now
+      exit 0
+    fi
+    # Kolla var 5:e minut
+    sleep 300
+  done
+) &
 
 (
   while true; do
