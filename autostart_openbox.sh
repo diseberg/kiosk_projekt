@@ -57,8 +57,15 @@ xset s noblank      # Ingen blanking
 # DPMS: standby efter 60 min, suspend efter 60 min, off efter 60 min
 xset dpms 3600 3600 3600
 
-# Döda alla screenlockers
+# Döda och förhindra alla screenlockers (aggressivt)
 killall -9 xscreensaver light-locker xfce4-screensaver gnome-screensaver 2>/dev/null
+# Kontinuerligt döda light-locker om den försöker starta
+(
+  while true; do
+    killall -9 light-locker 2>/dev/null
+    sleep 30
+  done
+) &
 
 # Inaktivera screen locking i alla möjliga desktop environments
 gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null
