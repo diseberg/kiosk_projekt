@@ -303,7 +303,7 @@ def export_new_rows():
             return
 
         # Prepare rows
-        # Format: Name, ID (Year or PersonID), Type (Avgiftstyp or "engångsavgift"), Timestamp
+        # Format: Name, ID (Year or PersonID), Type (Avgiftstyp or "engångsavgift"), Timestamp, Date, Hour
         data_to_upload = []
         ids_to_finalize = []
 
@@ -321,7 +321,20 @@ def export_new_rows():
                 id_val = m_year if m_year is not None else ""
                 type_val = "" 
 
-            data_to_upload.append([name, id_val, type_val, c_timestamp])
+            # Derive date and hour (YYYY-MM-DD, HH:00) to ease pivots in Sheets
+            date_part = ""
+            hour_part = ""
+            if c_timestamp:
+                try:
+                    parts = c_timestamp.split(" ")
+                    if len(parts) >= 2:
+                        date_part = parts[0]
+                        time_part = parts[1]
+                        hour_part = time_part.split(":")[0] + ":00"
+                except Exception:
+                    pass
+
+            data_to_upload.append([name, id_val, type_val, c_timestamp, date_part, hour_part])
 
         # STEP 3: Upload to Google Sheets
         # Add retry logic for slow/unreliable network
@@ -339,13 +352,13 @@ def export_new_rows():
                     # (Note: This is a simple check. If the sheet is completely empty, A1 is empty)
                     val_a1 = sheet.acell('A1').value
                     if not val_a1 or val_a1.lower() != "name":
-                         # If overwrite risk, maybe insert row? Or just append header?
-                         # If sheet is empty, append_row will put it at the top.
-                         print("Adding missing header to Logg sheet.")
-                         sheet.insert_row(["name", "id", "type", "timestamp"], index=1)
+                        # If overwrite risk, maybe insert row? Or just append header?
+                        # If sheet is empty, append_row will put it at the top.
+                        print("Adding missing header to Logg sheet.")
+                        sheet.insert_row(["name", "id", "type", "timestamp", "date", "hour"], index=1)
                 except gspread.WorksheetNotFound:
                     sheet = sh.add_worksheet("Logg", rows=1000, cols=10)
-                    sheet.append_row(["name", "id", "type", "timestamp"]) 
+                    sheet.append_row(["name", "id", "type", "timestamp", "date", "hour"]) 
 
                 sheet.append_rows(data_to_upload)
                 upload_success = True
