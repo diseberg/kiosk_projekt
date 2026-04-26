@@ -17,10 +17,10 @@ LARTIMMAR_DB_PATH = os.environ.get('LARTIMMAR_DB_PATH') or os.path.join(app.root
 # Predefined activities for the Lärtimmar form. The UI also allows free text
 # via the "Annat" option.
 LARTIMMAR_ACTIVITIES = [
-    "Träning",
-    "Tävling",
-    "Kurs/utbildning",
+    "Kurs",
     "Möte",
+    "Ledbygge",
+    "Utbildning",
 ]
 
 def get_ip_address():
