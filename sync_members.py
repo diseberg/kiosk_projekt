@@ -1,7 +1,7 @@
 import sqlite3
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
+from google.oauth2.service_account import Credentials
+from datetime import datetime, timezone
 import argparse
 import os
 import sys
@@ -29,8 +29,13 @@ def resolve_credentials_file():
 
 
 def get_gsheet_client():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(resolve_credentials_file(), scope)
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_file(
+        resolve_credentials_file(), scopes=scopes
+    )
     return gspread.authorize(creds)
 
 
@@ -99,7 +104,7 @@ def log_sync(action, target, rows=0, status="ok", note=""):
             log_ws = sh.add_worksheet("SyncLog", rows=1000, cols=6)
             log_ws.append_row(["timestamp", "action", "target", "rows", "status", "note"]) 
 
-        ts = datetime.utcnow().isoformat() + "Z"
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         log_ws.append_row([ts, action, target, str(rows), status, note])
     except Exception as e:
         print(f"Could not write sync log to sheet: {e}")
@@ -161,7 +166,7 @@ def import_members_from_sheet():
             rows = all_values
 
         # Parse first; only touch DB if we got at least one valid member.
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         parsed = []
         for r in rows:
             name = (r[0].strip() if len(r) >= 1 else "")

@@ -23,8 +23,8 @@ for i in {1..30}; do
     sleep 1
 done
 
-# Install/update dependencies (skip if already done recently)
-if [ ! -f .deps_installed ] || [ $(find .deps_installed -mtime +7) ]; then
+# Install/update dependencies (skip if installed less than 7 days ago)
+if [ ! -f .deps_installed ] || find .deps_installed -mtime +7 -print -quit | grep -q .; then
     echo "Installing dependencies..." >> "$LOGFILE"
     pip install -r requirements.txt >> "$LOGFILE" 2>&1
     touch .deps_installed
@@ -36,7 +36,7 @@ python3 sync_members.py init-db >> "$LOGFILE" 2>&1
 
 # Start Gunicorn in background
 echo "Starting Gunicorn server..." >> "$LOGFILE"
-gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
+KIOSK_BG_SYNC=1 gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
 GUNICORN_PID=$!
 echo "Gunicorn started with PID: $GUNICORN_PID" >> "$LOGFILE"
 

@@ -22,10 +22,8 @@ echo "Before cleanup - processes on port 5000:" >> "$LOGFILE"
 ss -tlnp | grep ":5000 " >> "$LOGFILE" 2>&1
 
 killall -9 chromium chromium-browser 2>/dev/null
-pkill -9 -f "gunicorn" 2>/dev/null
+pkill -9 -f "gunicorn.*app:app" 2>/dev/null
 pkill -9 -f "python.*app.py" 2>/dev/null
-pkill -9 python3 2>/dev/null
-pkill -9 python 2>/dev/null
 
 # Kill anything on port 5000 - FORCE
 fuser -k -9 5000/tcp 2>/dev/null
@@ -125,7 +123,7 @@ python sync_members.py init-db >> "$LOGFILE" 2>&1
 
 # Starta med GUNICORN (inte Flask dev server)
 echo "Starting Gunicorn..." >> "$LOGFILE"
-gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
+KIOSK_BG_SYNC=1 gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
 GUNICORN_PID=$!
 echo "Gunicorn PID: $GUNICORN_PID" >> "$LOGFILE"
 

@@ -3,8 +3,9 @@
 
 echo "Stopping kiosk..."
 
-# Kill browser
+# Kill browser (Debian 12 ships `chromium`; older systems used `chromium-browser`)
 pkill -f chromium-browser
+pkill -f "^chromium$"
 
 # Kill gunicorn
 pkill -f "gunicorn.*app:app"
@@ -15,5 +16,6 @@ sleep 2
 # Force kill if still running
 pkill -9 -f "gunicorn.*app:app" 2>/dev/null
 pkill -9 -f chromium-browser 2>/dev/null
+pkill -9 -f "^chromium$" 2>/dev/null
 
 echo "Kiosk stopped"

@@ -19,3 +19,8 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime locks / markers
+background_sync.lock
+export.lock
+.deps_installed

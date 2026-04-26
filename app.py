@@ -1,10 +1,7 @@
 import os
 import sqlite3
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from datetime import datetime
-import json
 import socket
 import threading
 import time
@@ -12,7 +9,8 @@ import sync_members
 
 app = Flask(__name__)
 
-DB_PATH = os.path.join(app.root_path, 'checkins.db')
+# Allow tests/tools to override DB location via env var.
+DB_PATH = os.environ.get('APP_DB_PATH') or os.path.join(app.root_path, 'checkins.db')
 
 def get_ip_address():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -30,65 +28,6 @@ def get_ip_address():
 @app.route('/theme/<path:filename>')
 def theme_static(filename):
     return send_from_directory(os.path.join(app.root_path, 'theme'), filename)
-
-# Inställningar för Google Sheets
-SHEET_NAME = "KioskTest" # ÄNDRA TILL NAMNET PÅ DITT SHEET
-JSON_KEY = "credentials.json"
-
-def resolve_credentials_file():
-    # try configured name first, then common accidental double-suffix
-    candidates = [
-        os.path.join(app.root_path, JSON_KEY),
-        os.path.join(app.root_path, JSON_KEY + ".json"),
-        os.path.join(app.root_path, "credentials.json.json"),
-        JSON_KEY,
-        JSON_KEY + ".json",
-        "credentials.json.json",
-    ]
-    for fn in candidates:
-        if os.path.exists(fn):
-            if fn != JSON_KEY:
-                print(f"Using credentials file: {fn}")
-            return fn
-    print(f"Credentials file not found. Tried: {', '.join(candidates)}")
-    return JSON_KEY
-
-def get_members_from_sheets():
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        keyfile = resolve_credentials_file()
-        creds = ServiceAccountCredentials.from_json_keyfile_name(keyfile, scope)
-        client = gspread.authorize(creds)
-        sh = client.open(SHEET_NAME)
-
-        # Preferred: worksheet "Members" with headers (name + year)
-        try:
-            ws = sh.worksheet("Members")
-            all_values = ws.get_all_values()
-            if all_values and len(all_values) >= 2:
-                header = [h.strip().lower() for h in all_values[0]]
-                rows = all_values[1:]
-                out = []
-                for r in rows:
-                    data = {header[i]: (r[i].strip() if i < len(r) else "") for i in range(len(header))}
-                    name = data.get("name") or data.get("full name") or data.get("fullname")
-                    yob = data.get("year") or data.get("year_of_birth") or data.get("yob")
-                    m_type = data.get("avgiftstyp") or data.get("type") or data.get("membership") or data.get("membership_type") or ""
-                    if not name:
-                        continue
-                    year_int = int(yob) if yob and yob.isdigit() else None
-                    out.append({"name": name, "year": year_int, "avgiftstyp": m_type})
-                return out
-        except gspread.WorksheetNotFound:
-            pass
-
-        # Fallback: first worksheet, column A names only
-        sheet1 = sh.sheet1
-        names = sheet1.col_values(1)[1:]
-        return [{"name": n, "year": None, "avgiftstyp": ""} for n in names if n]
-    except Exception as e:
-        print(f"Fel vid hämtning från Sheets: {e}")
-        return []
 
 
 def ensure_checkins_schema():
@@ -152,38 +91,27 @@ def get_members_from_db():
 
 @app.route('/')
 def index():
-    # Try local DB first; fall back to Google Sheets if local DB is empty
+    # Local DB is the source of truth; sync_members keeps it up to date.
     members = get_members_from_db()
-    if not members:
-        members = get_members_from_sheets()
-    
     ip_address = get_ip_address()
-
-    return render_template('index.html', members_json=json.dumps(members), ip_address=ip_address)
+    return render_template('index.html', members=members, ip_address=ip_address)
 
 @app.route('/checkin', methods=['POST'])
 def checkin():
-    name = request.json.get('name')
-    if not name:
+    payload = request.get_json(silent=True) or {}
+    name = payload.get('name')
+    if not name or not isinstance(name, str):
         return jsonify({"status": "error", "message": "Inget namn skickades."}), 400
 
     # Normalize for comparison
     name_clean = name.strip()
+    if not name_clean:
+        return jsonify({"status": "error", "message": "Inget namn skickades."}), 400
     name_key = name_clean.casefold()
 
-    # Validate against local DB members if available, otherwise Sheets
-    # (Checking against sheets is risky if network is down; prefer local DB)
+    # Validate against the local DB only. sync_members keeps it fresh.
     db_members = get_members_from_db()
-    if db_members:
-        names = [m['name'] for m in db_members]
-    else:
-        # Fallback only if local DB is totally empty
-        try:
-            names = [m['name'] for m in get_members_from_sheets()]
-        except:
-            names = []
-
-    member_keys = {m.strip().casefold() for m in names}
+    member_keys = {m['name'].strip().casefold() for m in db_members if m.get('name')}
 
     if name_key not in member_keys:
         return jsonify({"status": "error", "message": "Namnet finns inte i listan."}), 400
@@ -213,10 +141,13 @@ def checkin():
 
 @app.route('/checkin_guest', methods=['POST'])
 def checkin_guest():
-    name = request.json.get('name')
-    person_id = request.json.get('person_id')
-    
-    if not name or not person_id:
+    payload = request.get_json(silent=True) or {}
+    name = payload.get('name')
+    person_id = payload.get('person_id')
+
+    if (not name or not isinstance(name, str)
+            or not person_id or not isinstance(person_id, str)
+            or not name.strip() or not person_id.strip()):
         return jsonify({"status": "error", "message": "Namn och personnummer krävs."}), 400
 
     # Basic validation of person_id format XXXXXX-XXXX
@@ -284,14 +215,20 @@ def try_claim_background_sync():
         # Another worker already claimed it
         return False, None
 
-claimed, marker_file = try_claim_background_sync()
-if claimed:
-    print(f"[Worker {os.getpid()}] Starting background sync thread")
-    t = threading.Thread(target=background_sync_loop, daemon=True)
-    t.start()
-else:
-    print(f"[Worker {os.getpid()}] Background sync already claimed by another worker")
-    
+claimed, marker_file = (False, None)
+# Only start the background sync when explicitly enabled (e.g. by the
+# kiosk startup script). This keeps `import app` cheap for tests and CLIs.
+if os.environ.get("KIOSK_BG_SYNC", "").lower() in ("1", "true", "yes"):
+    claimed, marker_file = try_claim_background_sync()
+    if claimed:
+        print(f"[Worker {os.getpid()}] Starting background sync thread")
+        t = threading.Thread(target=background_sync_loop, daemon=True)
+        t.start()
+    else:
+        print(f"[Worker {os.getpid()}] Background sync already claimed by another worker")
+
+# Run schema migrations at import time so gunicorn workers also stay in sync.
+init_db()
+
 if __name__ == '__main__':
-    init_db()
     app.run(host='0.0.0.0', port=5000, debug=False)

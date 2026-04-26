@@ -1,11 +1,17 @@
 import os
 import sqlite3
+import tempfile
 import unittest
 import uuid
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-DB_PATH = os.path.join(PROJECT_ROOT, 'checkins.db')
+
+# Point the app at an isolated temp DB BEFORE importing it, so tests don't
+# touch the real checkins.db next to app.py.
+_TMP_DB_FD, DB_PATH = tempfile.mkstemp(prefix='kiosk_test_', suffix='.db')
+os.close(_TMP_DB_FD)
+os.environ['APP_DB_PATH'] = DB_PATH
 
 
 class KioskAppTests(unittest.TestCase):
@@ -32,15 +38,10 @@ class KioskAppTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Best-effort cleanup
+        # Best-effort cleanup of the temp DB file itself.
         try:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute("DELETE FROM members WHERE name = ?", (cls.test_member_name,))
-            c.execute("DELETE FROM checkins WHERE name = ?", (cls.test_member_name,))
-            conn.commit()
-            conn.close()
-        except Exception:
+            os.remove(DB_PATH)
+        except OSError:
             pass
 
     def test_index_renders_members_json(self):
