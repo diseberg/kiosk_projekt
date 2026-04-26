@@ -11,6 +11,17 @@ app = Flask(__name__)
 
 # Allow tests/tools to override DB location via env var.
 DB_PATH = os.environ.get('APP_DB_PATH') or os.path.join(app.root_path, 'checkins.db')
+# Separate DB for Lärtimmar registrations.
+LARTIMMAR_DB_PATH = os.environ.get('LARTIMMAR_DB_PATH') or os.path.join(app.root_path, 'lartimmar.db')
+
+# Predefined activities for the Lärtimmar form. The UI also allows free text
+# via the "Annat" option.
+LARTIMMAR_ACTIVITIES = [
+    "Träning",
+    "Tävling",
+    "Kurs/utbildning",
+    "Möte",
+]
 
 def get_ip_address():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -49,6 +60,27 @@ def ensure_checkins_schema():
 def init_db():
     ensure_checkins_schema()
     ensure_members_table()
+    ensure_lartimmar_schema()
+
+
+def ensure_lartimmar_schema():
+    conn = sqlite3.connect(LARTIMMAR_DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS lartimmar (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 timestamp TEXT,
+                 aktivitet TEXT,
+                 namn TEXT,
+                 personnummer TEXT,
+                 antal_timmar REAL,
+                 ledare INTEGER DEFAULT 0,
+                 exported INTEGER DEFAULT 0)''')
+    c.execute("PRAGMA table_info(lartimmar)")
+    cols = {row[1] for row in c.fetchall()}
+    if 'exported' not in cols:
+        c.execute("ALTER TABLE lartimmar ADD COLUMN exported INTEGER DEFAULT 0")
+    conn.commit()
+    conn.close()
 
 
 def ensure_members_table():
@@ -94,7 +126,61 @@ def index():
     # Local DB is the source of truth; sync_members keeps it up to date.
     members = get_members_from_db()
     ip_address = get_ip_address()
-    return render_template('index.html', members=members, ip_address=ip_address)
+    return render_template(
+        'index.html',
+        members=members,
+        ip_address=ip_address,
+        lartimmar_activities=LARTIMMAR_ACTIVITIES,
+    )
+
+
+@app.route('/lartimmar', methods=['POST'])
+def register_lartimmar():
+    payload = request.get_json(silent=True) or {}
+    aktivitet = payload.get('aktivitet')
+    namn = payload.get('namn')
+    personnummer = payload.get('personnummer')
+    antal_timmar = payload.get('antal_timmar')
+    ledare = bool(payload.get('ledare'))
+
+    # Validate strings
+    if (not aktivitet or not isinstance(aktivitet, str) or not aktivitet.strip()
+            or not namn or not isinstance(namn, str) or not namn.strip()
+            or not personnummer or not isinstance(personnummer, str) or not personnummer.strip()):
+        return jsonify({"status": "error", "message": "Aktivitet, namn och personnummer krävs."}), 400
+
+    # Validate decimal hours
+    try:
+        timmar = float(antal_timmar)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "Antal timmar måste vara ett tal."}), 400
+    if timmar <= 0 or timmar > 24:
+        return jsonify({"status": "error", "message": "Antal timmar måste vara mellan 0 och 24."}), 400
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            conn = sqlite3.connect(LARTIMMAR_DB_PATH, timeout=30.0)
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO lartimmar (timestamp, aktivitet, namn, personnummer, antal_timmar, ledare) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (timestamp, aktivitet.strip(), namn.strip(), personnummer.strip(), timmar, 1 if ledare else 0),
+            )
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": f"Lärtimmar registrerade: {namn.strip()}"})
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e):
+                time.sleep(0.5)
+                continue
+            return jsonify({"status": "error", "message": f"Databasfel: {e}"}), 500
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Okänt fel: {e}"}), 500
+
+    return jsonify({"status": "error", "message": "Kunde inte spara till databasen (låst)."}), 500
 
 @app.route('/checkin', methods=['POST'])
 def checkin():
@@ -186,6 +272,7 @@ def background_sync_loop():
             print("[Background] Starting sync...")
             sync_members.import_members_from_sheet()
             sync_members.export_new_rows()
+            sync_members.export_new_lartimmar()
             print("[Background] Sync completed.")
         except Exception as e:
             print(f"[Background] Sync error: {e}")

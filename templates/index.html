@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <button id="lartimmarBtn" class="top-btn" onclick="openLartimmarModal()">Registrera lärtimmar</button>
     <div class="container">
         <div class="card">
             <img class="logo" src="{{ url_for('theme_static', filename='images/logolight.png') }}" alt="logo">
@@ -50,6 +51,36 @@
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeGuestModal()">Avbryt</button>
                 <button class="btn" onclick="submitGuestCheckin()">Checka in</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lärtimmar Modal -->
+    <div id="lartimmarModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Registrera lärtimmar</h2>
+            <p class="lead">Fyll i aktivitet och timmar</p>
+
+            <select id="lartAktivitet" class="input" onchange="onAktivitetChange()">
+                {% for a in lartimmar_activities %}
+                <option value="{{ a }}">{{ a }}</option>
+                {% endfor %}
+                <option value="__other__">Annat...</option>
+            </select>
+            <input type="text" id="lartAktivitetOther" class="input" placeholder="Beskriv aktivitet" autocomplete="off" style="display:none;">
+
+            <input type="text" id="lartNamn" class="input" placeholder="Namn" autocomplete="off">
+            <input type="text" id="lartPersonnr" class="input" placeholder="Personnr (ÅÅMMDD-XXXX)" autocomplete="off">
+            <input type="number" id="lartTimmar" class="input" placeholder="Antal timmar (t.ex. 1.5)" step="0.25" min="0" max="24" inputmode="decimal">
+
+            <label class="checkbox-row">
+                <input type="checkbox" id="lartLedare">
+                <span>Ledare</span>
+            </label>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeLartimmarModal()">Avbryt</button>
+                <button class="btn" onclick="submitLartimmar()">Registrera</button>
             </div>
         </div>
     </div>
@@ -285,6 +316,87 @@
             msgDiv.classList.add('success');
             document.getElementById('nameInput').value = '';
             setTimeout(() => { msgDiv.innerText = ''; msgDiv.classList.remove('success'); }, 3000);
+        }
+
+        // Lärtimmar Modal
+        const lartimmarModal = document.getElementById('lartimmarModal');
+        const lartAktivitet = document.getElementById('lartAktivitet');
+        const lartAktivitetOther = document.getElementById('lartAktivitetOther');
+        const lartNamn = document.getElementById('lartNamn');
+        const lartPersonnr = document.getElementById('lartPersonnr');
+        const lartTimmar = document.getElementById('lartTimmar');
+        const lartLedare = document.getElementById('lartLedare');
+
+        function openLartimmarModal() {
+            lartimmarModal.classList.add('open');
+            onAktivitetChange();
+            lartNamn.focus();
+        }
+
+        function closeLartimmarModal() {
+            lartimmarModal.classList.remove('open');
+            lartAktivitet.selectedIndex = 0;
+            lartAktivitetOther.value = '';
+            lartAktivitetOther.style.display = 'none';
+            lartNamn.value = '';
+            lartPersonnr.value = '';
+            lartTimmar.value = '';
+            lartLedare.checked = false;
+        }
+
+        function onAktivitetChange() {
+            if (lartAktivitet.value === '__other__') {
+                lartAktivitetOther.style.display = '';
+                lartAktivitetOther.focus();
+            } else {
+                lartAktivitetOther.style.display = 'none';
+            }
+        }
+
+        function submitLartimmar() {
+            let aktivitet = lartAktivitet.value;
+            if (aktivitet === '__other__') {
+                aktivitet = (lartAktivitetOther.value || '').trim();
+            }
+            const namn = (lartNamn.value || '').trim();
+            const personnr = (lartPersonnr.value || '').trim();
+            const timmarRaw = (lartTimmar.value || '').trim().replace(',', '.');
+            const ledare = !!lartLedare.checked;
+
+            if (!aktivitet || !namn || !personnr || !timmarRaw) {
+                alert('Fyll i aktivitet, namn, personnummer och antal timmar.');
+                return;
+            }
+            const timmar = parseFloat(timmarRaw);
+            if (isNaN(timmar) || timmar <= 0 || timmar > 24) {
+                alert('Antal timmar måste vara ett tal mellan 0 och 24.');
+                return;
+            }
+
+            fetch('/lartimmar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    aktivitet: aktivitet,
+                    namn: namn,
+                    personnummer: personnr,
+                    antal_timmar: timmar,
+                    ledare: ledare,
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    closeLartimmarModal();
+                    showMessage(data.message, 'success');
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Ett fel uppstod.');
+            });
         }
     </script>
 </body>

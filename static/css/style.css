@@ -107,3 +107,51 @@ h1{margin:0 0 8px 0;font-size:2.0rem;font-weight:600}
 }
 
 @media (max-width:420px){.card{padding:24px;border-radius:14px}.logo{height:60px}}
+
+/* Top-right Lärtimmar button */
+.top-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 50;
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04);
+    color: #e6eef6;
+    font-family: Satoshi, system-ui, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.top-btn:hover { background: rgba(255,255,255,0.08); }
+.top-btn:active { transform: translateY(1px); }
+
+/* Checkbox row in Lärtimmar modal */
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0 4px 4px;
+    color: var(--muted);
+    font-size: 1.05rem;
+    cursor: pointer;
+    user-select: none;
+}
+.checkbox-row input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--accent);
+}
+
+select.input {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 20px) center, calc(100% - 14px) center;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    padding-right: 40px;
+}

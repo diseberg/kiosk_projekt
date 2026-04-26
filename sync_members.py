@@ -11,6 +11,8 @@ SHEET_NAME = "KioskTest"
 JSON_KEY = "credentials.json"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "checkins.db")
+LARTIMMAR_DB_PATH = os.environ.get("LARTIMMAR_DB_PATH") or os.path.join(BASE_DIR, "lartimmar.db")
+LARTIMMAR_SHEET = "Lartimmar"
 
 
 def resolve_credentials_file():
@@ -90,6 +92,33 @@ def ensure_tables():
         cursor.execute("ALTER TABLE members ADD COLUMN sheet_id TEXT")
     if "last_updated" not in members_cols:
         cursor.execute("ALTER TABLE members ADD COLUMN last_updated TEXT")
+    conn.commit()
+    conn.close()
+
+
+def ensure_lartimmar_table():
+    conn = sqlite3.connect(LARTIMMAR_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lartimmar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            aktivitet TEXT,
+            namn TEXT,
+            personnummer TEXT,
+            antal_timmar REAL,
+            ledare INTEGER DEFAULT 0,
+            exported INTEGER DEFAULT 0
+        )
+        """
+    )
+    cursor.execute("PRAGMA table_info(lartimmar)")
+    cols = {row[1] for row in cursor.fetchall()}
+    if "exported" not in cols:
+        cursor.execute("ALTER TABLE lartimmar ADD COLUMN exported INTEGER DEFAULT 0")
+    # Reset any rows stuck in processing state from previous crashes
+    cursor.execute("UPDATE lartimmar SET exported = 0 WHERE exported = 2")
     conn.commit()
     conn.close()
 
@@ -412,25 +441,157 @@ def export_new_rows():
                     import fcntl
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
                 lock_file.close()
-            except:
+            except Exception:
+                pass
+
+
+def export_new_lartimmar():
+    """Export new Lartimmar rows from the local DB to the Google Sheet."""
+    ensure_lartimmar_table()
+
+    lock_file_path = os.path.join(BASE_DIR, "export_lartimmar.lock")
+    lock_file = None
+    conn = None
+
+    try:
+        lock_file = open(lock_file_path, "w")
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            print("Lartimmar export already in progress, skipping...")
+            lock_file.close()
+            return
+
+        conn = sqlite3.connect(LARTIMMAR_DB_PATH, timeout=30.0)
+        cursor = conn.cursor()
+
+        # Reset rows stuck in processing state
+        cursor.execute("UPDATE lartimmar SET exported = 0 WHERE exported = 2")
+        conn.commit()
+
+        # Claim rows
+        cursor.execute("UPDATE lartimmar SET exported = 2 WHERE exported = 0")
+        if cursor.rowcount == 0:
+            conn.commit()
+            return
+        conn.commit()
+
+        cursor.execute(
+            "SELECT id, timestamp, aktivitet, namn, personnummer, antal_timmar, ledare "
+            "FROM lartimmar WHERE exported = 2"
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return
+
+        data_to_upload = []
+        ids_to_finalize = []
+        for r in rows:
+            r_id, ts, aktivitet, namn, personnummer, timmar, ledare = r
+            ids_to_finalize.append(r_id)
+            data_to_upload.append([
+                ts or "",
+                aktivitet or "",
+                namn or "",
+                personnummer or "",
+                "" if timmar is None else float(timmar),
+                "Ja" if ledare else "Nej",
+            ])
+
+        # Upload with retry
+        max_upload_retries = 3
+        upload_success = False
+        for attempt in range(max_upload_retries):
+            try:
+                client = get_gsheet_client()
+                sh = client.open(SHEET_NAME)
+                try:
+                    sheet = sh.worksheet(LARTIMMAR_SHEET)
+                    val_a1 = sheet.acell('A1').value
+                    if not val_a1 or val_a1.lower() != "timestamp":
+                        print(f"Adding missing header to {LARTIMMAR_SHEET} sheet.")
+                        sheet.insert_row(
+                            ["timestamp", "aktivitet", "namn", "personnummer", "antal_timmar", "ledare"],
+                            index=1,
+                        )
+                except gspread.WorksheetNotFound:
+                    sheet = sh.add_worksheet(LARTIMMAR_SHEET, rows=1000, cols=10)
+                    sheet.append_row(
+                        ["timestamp", "aktivitet", "namn", "personnummer", "antal_timmar", "ledare"]
+                    )
+
+                sheet.append_rows(data_to_upload)
+                upload_success = True
+                break
+            except Exception as upload_err:
+                print(f"Lartimmar upload attempt {attempt + 1}/{max_upload_retries} failed: {upload_err}")
+                if attempt < max_upload_retries - 1:
+                    time.sleep(2)
+                else:
+                    raise
+
+        if not upload_success:
+            raise Exception("Failed to upload Lartimmar to Google Sheets after all retries")
+
+        cursor.executemany(
+            "UPDATE lartimmar SET exported = 1 WHERE id = ?",
+            [(i,) for i in ids_to_finalize],
+        )
+        conn.commit()
+
+        print(f"Exporterat {len(data_to_upload)} nya l\u00e4rtimmar-rader!")
+        log_sync("write", LARTIMMAR_SHEET, rows=len(data_to_upload), status="ok")
+
+    except Exception as e:
+        print(f"Fel vid l\u00e4rtimmar-export: {e}")
+        try:
+            if conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE lartimmar SET exported = 0 WHERE exported = 2")
+                conn.commit()
+        except Exception as rollback_err:
+            print(f"Lartimmar rollback failed: {rollback_err}")
+        log_sync("write", LARTIMMAR_SHEET, rows=0, status="error", note=str(e))
+    finally:
+        if conn:
+            conn.close()
+        if lock_file:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception:
                 pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sync members and export checkins to Google Sheets")
-    parser.add_argument("action", nargs="?", choices=["import-members", "export-new-rows", "init-db", "sync-all", "reset-exports"], default="sync-all", help="Action to perform")
+    parser.add_argument("action", nargs="?", choices=["import-members", "export-new-rows", "export-lartimmar", "init-db", "sync-all", "reset-exports"], default="sync-all", help="Action to perform")
     args = parser.parse_args()
 
     if args.action == "import-members":
         import_members_from_sheet()
     elif args.action == "export-new-rows":
         export_new_rows()
+    elif args.action == "export-lartimmar":
+        export_new_lartimmar()
     elif args.action == "init-db":
         ensure_tables()
+        ensure_lartimmar_table()
         print("Database initialized.")
     elif args.action == "sync-all":
         import_members_from_sheet()
         export_new_rows()
+        export_new_lartimmar()
     elif args.action == "reset-exports":
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()

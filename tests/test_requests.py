@@ -13,6 +13,10 @@ _TMP_DB_FD, DB_PATH = tempfile.mkstemp(prefix='kiosk_test_', suffix='.db')
 os.close(_TMP_DB_FD)
 os.environ['APP_DB_PATH'] = DB_PATH
 
+_TMP_LART_FD, LARTIMMAR_DB_PATH = tempfile.mkstemp(prefix='kiosk_test_lart_', suffix='.db')
+os.close(_TMP_LART_FD)
+os.environ['LARTIMMAR_DB_PATH'] = LARTIMMAR_DB_PATH
+
 
 class KioskAppTests(unittest.TestCase):
     @classmethod
@@ -38,11 +42,12 @@ class KioskAppTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Best-effort cleanup of the temp DB file itself.
-        try:
-            os.remove(DB_PATH)
-        except OSError:
-            pass
+        # Best-effort cleanup of the temp DB files themselves.
+        for path in (DB_PATH, LARTIMMAR_DB_PATH):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
     def test_index_renders_members_json(self):
         with self.app.test_client() as client:
@@ -60,6 +65,43 @@ class KioskAppTests(unittest.TestCase):
 
             bad = client.post('/checkin', json={'name': 'ThisNameShouldNotExist_12345'})
             self.assertEqual(bad.status_code, 400)
+
+    def test_lartimmar_valid_and_invalid(self):
+        with self.app.test_client() as client:
+            ok = client.post('/lartimmar', json={
+                'aktivitet': 'Träning',
+                'namn': 'Test Person',
+                'personnummer': '900101-1234',
+                'antal_timmar': 1.5,
+                'ledare': True,
+            })
+            self.assertEqual(ok.status_code, 200)
+            self.assertIn('success', ok.get_data(as_text=True))
+
+            # Missing fields
+            bad = client.post('/lartimmar', json={'aktivitet': 'Träning'})
+            self.assertEqual(bad.status_code, 400)
+
+            # Out-of-range hours
+            bad2 = client.post('/lartimmar', json={
+                'aktivitet': 'Träning',
+                'namn': 'Test',
+                'personnummer': '900101-1234',
+                'antal_timmar': 99,
+            })
+            self.assertEqual(bad2.status_code, 400)
+
+            # Verify the success row landed in the lartimmar DB
+            conn = sqlite3.connect(LARTIMMAR_DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT aktivitet, namn, antal_timmar, ledare FROM lartimmar")
+            rows = c.fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][0], 'Träning')
+            self.assertEqual(rows[0][1], 'Test Person')
+            self.assertAlmostEqual(rows[0][2], 1.5)
+            self.assertEqual(rows[0][3], 1)
 
 
 if __name__ == '__main__':
