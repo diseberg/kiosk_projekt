@@ -268,7 +268,7 @@ def background_sync_loop():
     time.sleep(10) 
     while True:
         try:
-            # Run sync every 10 minutes (600 seconds)
+            # Run sync every 30 minutes (1800 seconds)
             print("[Background] Starting sync...")
             sync_members.import_members_from_sheet()
             sync_members.export_new_rows()
@@ -277,7 +277,7 @@ def background_sync_loop():
         except Exception as e:
             print(f"[Background] Sync error: {e}")
         
-        time.sleep(600)
+        time.sleep(1800)
 
 # Start background sync thread
 # Only start in ONE worker to prevent duplicate exports

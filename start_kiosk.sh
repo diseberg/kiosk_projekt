@@ -36,7 +36,7 @@ python3 sync_members.py init-db >> "$LOGFILE" 2>&1
 
 # Start Gunicorn in background
 echo "Starting Gunicorn server..." >> "$LOGFILE"
-KIOSK_BG_SYNC=1 gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
+KIOSK_BG_SYNC=1 PYTHONUNBUFFERED=1 gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
 GUNICORN_PID=$!
 echo "Gunicorn started with PID: $GUNICORN_PID" >> "$LOGFILE"
 

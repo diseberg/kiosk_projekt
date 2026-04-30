@@ -123,7 +123,7 @@ python sync_members.py init-db >> "$LOGFILE" 2>&1
 
 # Starta med GUNICORN (inte Flask dev server)
 echo "Starting Gunicorn..." >> "$LOGFILE"
-KIOSK_BG_SYNC=1 gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
+KIOSK_BG_SYNC=1 PYTHONUNBUFFERED=1 gunicorn -w 4 -b 0.0.0.0:5000 app:app >> "$LOGFILE" 2>&1 &
 GUNICORN_PID=$!
 echo "Gunicorn PID: $GUNICORN_PID" >> "$LOGFILE"
 
