@@ -494,8 +494,10 @@ def export_new_lartimmar():
         for r in rows:
             r_id, ts, aktivitet, namn, personnummer, timmar, ledare = r
             ids_to_finalize.append(r_id)
+            datum = (ts or "")[:10]
             data_to_upload.append([
                 ts or "",
+                datum,
                 aktivitet or "",
                 namn or "",
                 personnummer or "",
@@ -516,13 +518,13 @@ def export_new_lartimmar():
                     if not val_a1 or val_a1.lower() != "timestamp":
                         print(f"Adding missing header to {LARTIMMAR_SHEET} sheet.")
                         sheet.insert_row(
-                            ["timestamp", "aktivitet", "namn", "personnummer", "antal_timmar", "ledare"],
+                            ["timestamp", "datum", "aktivitet", "namn", "personnummer", "antal_timmar", "ledare"],
                             index=1,
                         )
                 except gspread.WorksheetNotFound:
                     sheet = sh.add_worksheet(LARTIMMAR_SHEET, rows=1000, cols=10)
                     sheet.append_row(
-                        ["timestamp", "aktivitet", "namn", "personnummer", "antal_timmar", "ledare"]
+                        ["timestamp", "datum", "aktivitet", "namn", "personnummer", "antal_timmar", "ledare"]
                     )
 
                 sheet.append_rows(data_to_upload)
